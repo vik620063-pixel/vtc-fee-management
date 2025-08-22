@@ -1,14 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><script>
-  var password = prompt("Enter password to access this page:");
-  if (password !== "Privacy@1996") {
-    document.body.innerHTML = "<h2>Access Denied</h2>";
-    document.body.style.textAlign = "center";
-    document.body.style.marginTop = "20%";
-  }
-</script>
-
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>V.T.C HIGH SCHOOL - Fee Management</title>
@@ -35,6 +27,7 @@ input,select{width:100%;padding:5px;margin-bottom:8px;}
 .mobileDropdownContent a:hover{background:#ddd;}
 .mobileDropdown:hover .mobileDropdownContent{display:block;}
 #totalFeeCollection{font-weight:bold;margin-right:20px;}
+#totalStudents{font-weight:bold;}
 </style>
 </head>
 <body>
@@ -45,11 +38,13 @@ input,select{width:100%;padding:5px;margin-bottom:8px;}
   <label>Academic Year:</label>
   <select id="yearSelect"></select>
   <span id="totalFeeCollection">Total Fee Collected: ₹0</span>
+  <span id="totalStudents">Total Students: 0</span>
   <button id="addStudentBtn">Add Student</button>
+  <button id="carryForwardBtn">Carry Forward</button>
 </div>
 
 <div style="margin-top:20px; text-align:center;">
-  <input type="text" id="searchInput" placeholder="Search by Class, Roll No or Mobile" style="width:60%; display:inline-block;">
+  <input type="text" id="searchInput" placeholder="Search by Class, Roll No, Mobile, Receipt No" style="width:60%; display:inline-block;">
   <button id="searchBtn" style="width:15%; display:inline-block;">Search</button>
   <button id="exportExcelBtn" style="width:15%; display:inline-block;">Export Excel</button>
 </div>
@@ -66,48 +61,50 @@ input,select{width:100%;padding:5px;margin-bottom:8px;}
 
 <!-- Fee Payment Modal -->
 <div id="modal" class="modal">
-<div class="modal-content">
-<button id="closeModalBtn" class="cancelBtn">×</button>
-<h4>Pay Fee</h4>
-<select id="modalMonths"></select>
-<input type="number" id="modalTution" placeholder="Tuition Fee">
-<input type="number" id="modalLibrary" placeholder="Library Fee">
-<input type="number" id="modalComputer" placeholder="Computer Fee">
-<input type="number" id="modalSports" placeholder="Sports Fee">
-<input type="number" id="modalOther" placeholder="Other Fee">
-<input type="date" id="modalDepositDate">
-<label>Mode of Deposit:</label>
-<select id="modalMode">
-<option value="Cash">Cash</option>
-<option value="Online">Online</option>
-<option value="Cheque">Cheque</option>
-</select>
-<button id="submitFeeBtn">Submit Payment</button>
-</div>
+  <div class="modal-content">
+    <button id="closeModalBtn" class="cancelBtn">×</button>
+    <h4>Pay Fee</h4>
+    <select id="modalMonths"></select>
+    <input type="number" id="modalTution" placeholder="Tuition Fee">
+    <input type="number" id="modalLibrary" placeholder="Library Fee">
+    <input type="number" id="modalComputer" placeholder="Computer Fee">
+    <input type="number" id="modalSports" placeholder="Sports Fee">
+    <input type="number" id="modalOther" placeholder="Other Fee">
+    <input type="date" id="modalDepositDate">
+    <label>Mode of Deposit:</label>
+    <select id="modalMode">
+      <option value="Cash">Cash</option>
+      <option value="Online">Online</option>
+      <option value="Cheque">Cheque</option>
+    </select>
+    <button id="submitFeeBtn">Submit Payment</button>
+  </div>
 </div>
 
 <!-- Add/Edit Student Modal -->
 <div id="addModal" class="modal">
-<div class="modal-content" style="width:400px;">
-<button id="closeAddModalBtn" class="cancelBtn">×</button>
-<h4 id="addEditTitle">Add Student</h4>
-<input id="addReceiptNo" placeholder="Receipt No">
-<input id="addFullName" placeholder="Full Name">
-<input id="addParentName" placeholder="Father/Mother Name">
-<input id="addMobileNo" placeholder="Mobile No">
-<input id="addClassName" placeholder="Class">
-<input id="addRollNo" placeholder="Roll No">
-<label>Academic Year:</label>
-<select id="addAcademicYear"></select>
-<div id="feeEditContainer" style="max-height:300px; overflow:auto; border:1px solid #ccc; padding:5px; margin-top:10px;"></div>
-<button id="saveStudentBtn">Save</button>
-</div>
+  <div class="modal-content" style="width:400px;">
+    <button id="closeAddModalBtn" class="cancelBtn">×</button>
+    <h4 id="addEditTitle">Add Student</h4>
+    <input id="addReceiptNo" placeholder="Receipt No" readonly>
+    <input id="addFullName" placeholder="Full Name">
+    <input id="addParentName" placeholder="Father/Mother Name">
+    <input id="addMobileNo" placeholder="Mobile No">
+    <input id="addClassName" placeholder="Class">
+    <input id="addRollNo" placeholder="Roll No">
+    <label>Academic Year:</label>
+    <select id="addAcademicYear"></select>
+    <!-- Fee container intentionally kept for EDIT only; cleared for ADD -->
+    <div id="feeEditContainer" style="max-height:300px; overflow:auto; border:1px solid #ccc; padding:5px; margin-top:10px;"></div>
+    <button id="saveStudentBtn">Save</button>
+  </div>
 </div>
 
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <script>
 const monthsArr=["April","May","June","July","August","September","October","November","December","January","February","March"];
 const modal=document.getElementById("modal");
+const addModal=document.getElementById("addModal");
 const yearSelect=document.getElementById("yearSelect");
 const addYearSelect=document.getElementById("addAcademicYear");
 let currentStudentIndex=null;
@@ -125,287 +122,425 @@ for(let y=2024;y<=year+1;y++){
 yearSelect.value=year+"-"+(year+1);
 addYearSelect.value=year+"-"+(year+1);
 
-// Load Records
+// ===== Universal, lowest-available receipt number =====
+function generateGlobalReceiptNo(){
+  const allRecords = JSON.parse(localStorage.getItem("feeRecords")||"[]");
+  const used = new Set(allRecords.map(r => parseInt(String(r.receiptNo||"").replace(/^R/,""))).filter(n=>!isNaN(n)));
+  let n=1;
+  while(used.has(n)) n++;
+  return "R"+String(n).padStart(4,"0");
+}
+
+// ===== Helpers =====
+function deepClone(obj){ return JSON.parse(JSON.stringify(obj)); }
+function monthlySum(f){ return (f.tution||0)+(f.library||0)+(f.computer||0)+(f.sports||0)+(f.other||0); }
+
+// ===== Load Records to table =====
 function loadRecords(recordsData){
-    const tbody=document.querySelector("#recordsTable tbody");
-    tbody.innerHTML="";
-    let records=recordsData || JSON.parse(localStorage.getItem("feeRecords")||"[]").filter(r=>r.academicYear===yearSelect.value);
-    let totalFee=0;
+  const tbody=document.querySelector("#recordsTable tbody");
+  tbody.innerHTML="";
+  const all=JSON.parse(localStorage.getItem("feeRecords")||"[]");
+  let records=recordsData || all.filter(r=>r.academicYear===yearSelect.value);
+  let totalFee=0;
 
-    records.forEach((r,index)=>{
-        let paidMonths=monthsArr.filter(m=>r.fees[m].status==="Paid");
-        let unpaidMonths=monthsArr.filter(m=>r.fees[m].status!=="Paid");
+  records.forEach((r,index)=>{
+    const paidMonths=monthsArr.filter(m=>r.fees[m].status==="Paid");
+    const unpaidMonths=monthsArr.filter(m=>r.fees[m].status!=="Paid");
 
-        let paidHtml=paidMonths.map(m=>{
-            let date=r.fees[m].depositDate||'-';
-            totalFee += r.fees[m].tution+r.fees[m].library+r.fees[m].computer+r.fees[m].sports+r.fees[m].other;
-            return `<span class="paidMonthBtn" data-index="${index}" data-month="${m}">${m} (${date})</span>`;
-        }).join("")||'-';
+    const paidHtml=paidMonths.map(m=>{
+      const f=r.fees[m];
+      const date=f.depositDate||'-';
+      totalFee += monthlySum(f);
+      return `<span class="paidMonthBtn" data-index="${index}" data-month="${m}">${m} (${date})</span>`;
+    }).join("")||'-';
 
-        let unpaidHtml=unpaidMonths.map(m=>{
-            return `<span class="unpaidMonthBtn" data-index="${index}" data-month="${m}">${m}</span>`;
-        }).join("")||'-';
+    const unpaidHtml=unpaidMonths.map(m=>`<span class="unpaidMonthBtn" data-index="${index}" data-month="${m}">${m}</span>`).join("")||'-';
 
-        let mobileHtml = `<div class="mobileDropdown">${r.mobileNo||'-'}
-            <div class="mobileDropdownContent">
-            <a href="tel:${r.mobileNo}">Call</a>
-            <a href="sms:${r.mobileNo}">SMS</a>
-            <a href="https://wa.me/${r.mobileNo}" target="_blank">WhatsApp</a>
-            </div></div>`;
+    const mobileHtml = `<div class="mobileDropdown">${r.mobileNo||'-'}
+      <div class="mobileDropdownContent">
+        <a href="tel:${r.mobileNo}">Call</a>
+        <a href="sms:${r.mobileNo}">SMS</a>
+        <a href="https://wa.me/${r.mobileNo}" target="_blank">WhatsApp</a>
+      </div>
+    </div>`;
 
-        let tr=document.createElement("tr");
-        tr.innerHTML=`
-        <td>${r.receiptNo}</td>
-        <td>${r.fullName}</td>
-        <td>${r.parentName}</td>
-        <td>${r.className}</td>
-        <td>${r.rollNo}</td>
-        <td>${mobileHtml}</td>
-        <td>${paidHtml}</td>
-        <td>${unpaidHtml}</td>
-        <td class="actions">
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${r.receiptNo}</td>
+      <td>${r.fullName}</td>
+      <td>${r.parentName}</td>
+      <td>${r.className}</td>
+      <td>${r.rollNo}</td>
+      <td>${mobileHtml}</td>
+      <td>${paidHtml}</td>
+      <td>${unpaidHtml}</td>
+      <td class="actions">
         <button class="editBtn">Edit</button>
         <button class="deleteBtn">Delete</button>
-        </td>`;
-        tbody.appendChild(tr);
+      </td>`;
+    tbody.appendChild(tr);
 
-        // Paid month click - invoice
-        tr.querySelectorAll(".paidMonthBtn").forEach(btn=>{
-            btn.addEventListener("click",()=>{
-                const month=btn.dataset.month;
-                const student=JSON.parse(localStorage.getItem("feeRecords")||"[]").find(r=>r.receiptNo===records[btn.dataset.index].receiptNo && r.academicYear===yearSelect.value);
-                const f=student.fees[month];
-                const sum=f.tution+f.library+f.computer+f.sports+f.other;
-                const invoiceWindow=window.open("","_blank");
-                invoiceWindow.document.write(`<html><head><title>Fee Invoice</title><style>body{font-family:Arial;margin:0;padding:0;} .invoice{width:100%;padding:20px;} h2,h4{text-align:center;margin:0;} table{width:100%;border-collapse:collapse;margin-top:10px;} th,td{border:1px solid #000;padding:5px;text-align:left;} .copy{border-top:2px dashed #000;margin-top:20px;padding-top:20px;} .footer{text-align:center;margin-top:10px;font-weight:bold;}</style></head>
-                <body><div class="invoice"><h2>V. T. C HIGH SCHOOL</h2><h4>Address: PAUTA | Contact: 8002458432</h4><h4>Student Copy</h4><table>
-                <tr><td><strong>Receipt No:</strong> ${student.receiptNo}</td><td><strong>Date:</strong> ${f.depositDate}</td></tr>
-                <tr><td><strong>Name:</strong> ${student.fullName}</td><td><strong>Class:</strong> ${student.className}</td></tr>
-                <tr><td><strong>Father/Mother:</strong> ${student.parentName}</td><td><strong>Roll No:</strong> ${student.rollNo}</td></tr>
-                <tr><td><strong>Month:</strong> ${month}</td><td><strong>Mode:</strong> ${f.mode}</td></tr></table>
-                <table><tr><th>Tuition</th><th>Library</th><th>Computer</th><th>Sports</th><th>Other</th><th>Total</th></tr>
-                <tr><td>${f.tution}</td><td>${f.library}</td><td>${f.computer}</td><td>${f.sports}</td><td>${f.other}</td><td>${sum}</td></tr></table>
-                <div class="footer">Thank You</div>
-                <div class="copy">
-                <h2>V. T. C HIGH SCHOOL</h2><h4>Address: PAUTA | Contact: 8002458432</h4><h4>School Copy</h4>
-                <table>
-                <tr><td><strong>Receipt No:</strong> ${student.receiptNo}</td><td><strong>Date:</strong> ${f.depositDate}</td></tr>
-                <tr><td><strong>Name:</strong> ${student.fullName}</td><td><strong>Class:</strong> ${student.className}</td></tr>
-                <tr><td><strong>Father/Mother:</strong> ${student.parentName}</td><td><strong>Roll No:</strong> ${student.rollNo}</td></tr>
-                <tr><td><strong>Month:</strong> ${month}</td><td><strong>Mode:</strong> ${f.mode}</td></tr>
-                </table>
-                <table><tr><th>Tuition</th><th>Library</th><th>Computer</th><th>Sports</th><th>Other</th><th>Total</th></tr>
-                <tr><td>${f.tution}</td><td>${f.library}</td><td>${f.computer}</td><td>${f.sports}</td><td>${f.other}</td><td>${sum}</td></tr></table>
-                <div class="footer">Thank You</div>
-                </div></div></body></html>`);
-                invoiceWindow.document.close();
-                invoiceWindow.print();
-            });
-        });
-
-        // Unpaid month click - pay fee modal
-        tr.querySelectorAll(".unpaidMonthBtn").forEach(btn=>{
-            btn.addEventListener("click",()=>{
-                currentStudentIndex=index; // filtered index
-                currentReceiptNo=records[index].receiptNo; // store receipt number
-                document.getElementById("modalMonths").innerHTML=`<option value="${btn.dataset.month}" selected>${btn.dataset.month}</option>`;
-                document.getElementById("modalTution").value=0;
-                document.getElementById("modalLibrary").value=0;
-                document.getElementById("modalComputer").value=0;
-                document.getElementById("modalSports").value=0;
-                document.getElementById("modalOther").value=0;
-                document.getElementById("modalDepositDate").value=new Date().toISOString().split("T")[0];
-                document.getElementById("modalMode").value="Cash";
-                modal.style.display="flex";
-            });
-        });
-
-        // Edit student
-        tr.querySelector(".editBtn").addEventListener("click",()=>{
-            editMode=true;
-            currentStudentIndex=index;
-            const student=records[index];
-            document.getElementById("addEditTitle").innerText="Edit Student";
-            document.getElementById("addReceiptNo").value=student.receiptNo;
-            document.getElementById("addFullName").value=student.fullName;
-            document.getElementById("addParentName").value=student.parentName;
-            document.getElementById("addMobileNo").value=student.mobileNo||'';
-            document.getElementById("addClassName").value=student.className;
-            document.getElementById("addRollNo").value=student.rollNo;
-            document.getElementById("addAcademicYear").value=student.academicYear;
-
-            const container=document.getElementById("feeEditContainer");
-            container.innerHTML="<h4 style='text-align:center'>Paid/Unpaid Fees</h4>";
-            monthsArr.forEach(m=>{
-                const f=student.fees[m];
-                const div=document.createElement("div");
-                div.innerHTML=`<strong>${m}:</strong>
-                Tuition <input class="feeInput" id="feeT_${m}" value="${f.tution}">
-                Library <input class="feeInput" id="feeL_${m}" value="${f.library}">
-                Computer <input class="feeInput" id="feeC_${m}" value="${f.computer}">
-                Sports <input class="feeInput" id="feeS_${m}" value="${f.sports}">
-                Other <input class="feeInput" id="feeO_${m}" value="${f.other}">
-                Status <select id="feeSt_${m}"><option value='Paid' ${f.status==='Paid'?'selected':''}>Paid</option><option value='Unpaid' ${f.status==='Unpaid'?'selected':''}>Unpaid</option></select>
-                Date <input type='date' id="feeD_${m}" value="${f.depositDate}"> Mode <select id="feeM_${m}"><option value='Cash' ${f.mode==='Cash'?'selected':''}>Cash</option><option value='Online' ${f.mode==='Online'?'selected':''}>Online</option><option value='Cheque' ${f.mode==='Cheque'?'selected':''}>Cheque</option></select>`;
-                container.appendChild(div);
-            });
-
-            document.getElementById("addModal").style.display="flex";
-        });
-
-        // Delete student
-        tr.querySelector(".deleteBtn").addEventListener("click",()=>{
-            if(confirm("Delete record?")){
-                let recordsAll=JSON.parse(localStorage.getItem("feeRecords")||"[]");
-                recordsAll.splice(recordsAll.findIndex(r=>r.receiptNo===records[index].receiptNo && r.academicYear===records[index].academicYear),1);
-                localStorage.setItem("feeRecords",JSON.stringify(recordsAll));
-                loadRecords();
-            }
-        });
+    // Invoice on paid month click
+    tr.querySelectorAll(".paidMonthBtn").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        const month=btn.dataset.month;
+        const student = JSON.parse(localStorage.getItem("feeRecords")||"[]").find(s=>s.receiptNo===r.receiptNo && s.academicYear===yearSelect.value);
+        if(!student) return;
+        const f=student.fees[month];
+        const sum=monthlySum(f);
+        const w=window.open("","_blank");
+        w.document.write(`<html><head><title>Fee Invoice</title><style>
+          body{font-family:Arial;margin:0;padding:0;}
+          .invoice{width:100%;padding:20px;}
+          h2,h4{text-align:center;margin:0;}
+          table{width:100%;border-collapse:collapse;margin-top:10px;}
+          th,td{border:1px solid #000;padding:5px;text-align:left;}
+          .copy{border-top:2px dashed #000;margin-top:20px;padding-top:20px;}
+          .footer{text-align:center;margin-top:10px;font-weight:bold;}
+        </style></head>
+        <body><div class="invoice">
+          <h2>V. T. C HIGH SCHOOL</h2><h4>Address: PAUTA | Contact: 8002458432</h4><h4>Student Copy</h4>
+          <table>
+            <tr><td><strong>Receipt No:</strong> ${student.receiptNo}</td><td><strong>Date:</strong> ${f.depositDate||'-'}</td></tr>
+            <tr><td><strong>Name:</strong> ${student.fullName}</td><td><strong>Class:</strong> ${student.className}</td></tr>
+            <tr><td><strong>Father/Mother:</strong> ${student.parentName}</td><td><strong>Roll No:</strong> ${student.rollNo}</td></tr>
+            <tr><td><strong>Month:</strong> ${month}</td><td><strong>Mode:</strong> ${f.mode||'-'}</td></tr>
+          </table>
+          <table>
+            <tr><th>Tuition</th><th>Library</th><th>Computer</th><th>Sports</th><th>Other</th><th>Total</th></tr>
+            <tr><td>${f.tution||0}</td><td>${f.library||0}</td><td>${f.computer||0}</td><td>${f.sports||0}</td><td>${f.other||0}</td><td>${sum}</td></tr>
+          </table>
+          <div class="footer">Thank You</div>
+          <div class="copy">
+            <h2>V. T. C HIGH SCHOOL</h2><h4>Address: PAUTA | Contact: 8002458432</h4><h4>School Copy</h4>
+            <table>
+              <tr><td><strong>Receipt No:</strong> ${student.receiptNo}</td><td><strong>Date:</strong> ${f.depositDate||'-'}</td></tr>
+              <tr><td><strong>Name:</strong> ${student.fullName}</td><td><strong>Class:</strong> ${student.className}</td></tr>
+              <tr><td><strong>Father/Mother:</strong> ${student.parentName}</td><td><strong>Roll No:</strong> ${student.rollNo}</td></tr>
+              <tr><td><strong>Month:</strong> ${month}</td><td><strong>Mode:</strong> ${f.mode||'-'}</td></tr>
+            </table>
+            <table>
+              <tr><th>Tuition</th><th>Library</th><th>Computer</th><th>Sports</th><th>Other</th><th>Total</th></tr>
+              <tr><td>${f.tution||0}</td><td>${f.library||0}</td><td>${f.computer||0}</td><td>${f.sports||0}</td><td>${f.other||0}</td><td>${sum}</td></tr>
+            </table>
+            <div class="footer">Thank You</div>
+          </div>
+        </div></body></html>`);
+        w.document.close();
+        w.print();
+      });
     });
 
-    document.getElementById("totalFeeCollection").innerText="Total Fee Collected: ₹"+totalFee;
+    // Unpaid month click -> Pay Fee modal
+    tr.querySelectorAll(".unpaidMonthBtn").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        currentStudentIndex=index;
+        currentReceiptNo=r.receiptNo;
+        document.getElementById("modalMonths").innerHTML=`<option value="${btn.dataset.month}" selected>${btn.dataset.month}</option>`;
+        document.getElementById("modalTution").value=0;
+        document.getElementById("modalLibrary").value=0;
+        document.getElementById("modalComputer").value=0;
+        document.getElementById("modalSports").value=0;
+        document.getElementById("modalOther").value=0;
+        document.getElementById("modalDepositDate").value=new Date().toISOString().split("T")[0];
+        document.getElementById("modalMode").value="Cash";
+        modal.style.display="flex";
+      });
+    });
+
+    // Edit student
+    tr.querySelector(".editBtn").addEventListener("click",()=>{
+      editMode=true;
+      currentStudentIndex=index;
+      const student=r;
+      document.getElementById("addEditTitle").innerText="Edit Student";
+      document.getElementById("addReceiptNo").value=student.receiptNo;
+      document.getElementById("addFullName").value=student.fullName;
+      document.getElementById("addParentName").value=student.parentName;
+      document.getElementById("addMobileNo").value=student.mobileNo||'';
+      document.getElementById("addClassName").value=student.className;
+      document.getElementById("addRollNo").value=student.rollNo;
+      document.getElementById("addAcademicYear").value=student.academicYear;
+
+      const container=document.getElementById("feeEditContainer");
+      container.innerHTML="<h4 style='text-align:center'>Paid/Unpaid Fees</h4>";
+      monthsArr.forEach(m=>{
+        const f=student.fees[m];
+        const div=document.createElement("div");
+        div.innerHTML=`<strong>${m}:</strong>
+          Tuition <input class="feeInput" id="feeT_${m}" value="${f.tution||0}">
+          Library <input class="feeInput" id="feeL_${m}" value="${f.library||0}">
+          Computer <input class="feeInput" id="feeC_${m}" value="${f.computer||0}">
+          Sports <input class="feeInput" id="feeS_${m}" value="${f.sports||0}">
+          Other <input class="feeInput" id="feeO_${m}" value="${f.other||0}">
+          Status <select id="feeSt_${m}"><option value='Paid' ${f.status==='Paid'?'selected':''}>Paid</option><option value='Unpaid' ${f.status!=='Paid'?'selected':''}>Unpaid</option></select>
+          Date <input type='date' id="feeD_${m}" value="${f.depositDate||''}">
+          Mode <select id="feeM_${m}"><option value='Cash' ${f.mode==='Cash'?'selected':''}>Cash</option><option value='Online' ${f.mode==='Online'?'selected':''}>Online</option><option value='Cheque' ${f.mode==='Cheque'?'selected':''}>Cheque</option></select>`;
+        container.appendChild(div);
+      });
+
+      addModal.style.display="flex";
+    });
+
+    // Delete student (free their receipt no. for reuse)
+    tr.querySelector(".deleteBtn").addEventListener("click",()=>{
+      if(confirm("Delete record?")){
+        let recordsAll=JSON.parse(localStorage.getItem("feeRecords")||"[]");
+        const idx=recordsAll.findIndex(x=>x.receiptNo===r.receiptNo && x.academicYear===r.academicYear);
+        if(idx>-1){
+          recordsAll.splice(idx,1);
+          localStorage.setItem("feeRecords",JSON.stringify(recordsAll));
+          loadRecords();
+        }
+      }
+    });
+  });
+
+  document.getElementById("totalFeeCollection").innerText="Total Fee Collected: ₹"+totalFee;
+  document.getElementById("totalStudents").innerText="Total Students: "+records.length;
 }
 
 // Academic Year change
 yearSelect.addEventListener("change",()=>{ loadRecords(); });
 
-// Add Student button
+// Add Student button (fee container removed here)
 document.getElementById("addStudentBtn").addEventListener("click",()=>{
-    editMode=false;
-    document.getElementById("addEditTitle").innerText="Add Student";
-    document.getElementById("addReceiptNo").value="";
-    document.getElementById("addFullName").value="";
-    document.getElementById("addParentName").value="";
-    document.getElementById("addMobileNo").value="";
-    document.getElementById("addClassName").value="";
-    document.getElementById("addRollNo").value="";
-    document.getElementById("addAcademicYear").value=yearSelect.value;
-    document.getElementById("feeEditContainer").innerHTML="";
-    document.getElementById("addModal").style.display="flex";
+  editMode=false;
+  document.getElementById("addEditTitle").innerText="Add Student";
+  document.getElementById("addReceiptNo").value=generateGlobalReceiptNo();
+  document.getElementById("addFullName").value="";
+  document.getElementById("addParentName").value="";
+  document.getElementById("addMobileNo").value="";
+  document.getElementById("addClassName").value="";
+  document.getElementById("addRollNo").value="";
+  document.getElementById("addAcademicYear").value=yearSelect.value;
+  document.getElementById("feeEditContainer").innerHTML=""; // no fee editor during Add
+  addModal.style.display="flex";
 });
 
 // Close modals
 document.getElementById("closeModalBtn").onclick=()=>{ if(confirm("Cancel payment?")) modal.style.display="none"; }
-document.getElementById("closeAddModalBtn").onclick=()=>{ if(confirm("Cancel?")) document.getElementById("addModal").style.display="none"; }
+document.getElementById("closeAddModalBtn").onclick=()=>{ if(confirm("Cancel?")) addModal.style.display="none"; }
 
-// Submit Fee
+// Submit Fee (single month)
 document.getElementById("submitFeeBtn").onclick=()=>{
-    if(!currentReceiptNo) return;
-    let month=document.getElementById("modalMonths").value;
-    let recordsAll=JSON.parse(localStorage.getItem("feeRecords")||"[]");
-    const student=recordsAll.find(r=>r.receiptNo===currentReceiptNo && r.academicYear===yearSelect.value);
-    if(!student) return;
-    student.fees[month]={tution:parseFloat(document.getElementById("modalTution").value)||0,
-                        library:parseFloat(document.getElementById("modalLibrary").value)||0,
-                        computer:parseFloat(document.getElementById("modalComputer").value)||0,
-                        sports:parseFloat(document.getElementById("modalSports").value)||0,
-                        other:parseFloat(document.getElementById("modalOther").value)||0,
-                        depositDate:document.getElementById("modalDepositDate").value,
-                        mode:document.getElementById("modalMode").value,
-                        status:"Paid"};
-    localStorage.setItem("feeRecords",JSON.stringify(recordsAll));
-    modal.style.display="none";
-    loadRecords();
+  if(!currentReceiptNo) return;
+  const month=document.getElementById("modalMonths").value;
+  const all=JSON.parse(localStorage.getItem("feeRecords")||"[]");
+  const student=all.find(r=>r.receiptNo===currentReceiptNo && r.academicYear===yearSelect.value);
+  if(!student) return;
+  student.fees[month]={
+    tution:parseFloat(document.getElementById("modalTution").value)||0,
+    library:parseFloat(document.getElementById("modalLibrary").value)||0,
+    computer:parseFloat(document.getElementById("modalComputer").value)||0,
+    sports:parseFloat(document.getElementById("modalSports").value)||0,
+    other:parseFloat(document.getElementById("modalOther").value)||0,
+    depositDate:document.getElementById("modalDepositDate").value,
+    mode:document.getElementById("modalMode").value,
+    status:"Paid"
+  };
+  localStorage.setItem("feeRecords",JSON.stringify(all));
+  modal.style.display="none";
+  loadRecords();
 };
 
 // Save/Add Student
 document.getElementById("saveStudentBtn").onclick=()=>{
-    const receiptNo=document.getElementById("addReceiptNo").value.trim();
-    const fullName=document.getElementById("addFullName").value.trim();
-    const parentName=document.getElementById("addParentName").value.trim();
-    const mobileNo=document.getElementById("addMobileNo").value.trim();
-    const className=document.getElementById("addClassName").value.trim();
-    const rollNo=document.getElementById("addRollNo").value.trim();
-    const academicYear=document.getElementById("addAcademicYear").value;
+  const receiptNo=document.getElementById("addReceiptNo").value.trim();
+  const fullName=document.getElementById("addFullName").value.trim();
+  const parentName=document.getElementById("addParentName").value.trim();
+  const mobileNo=document.getElementById("addMobileNo").value.trim();
+  const className=document.getElementById("addClassName").value.trim();
+  const rollNo=document.getElementById("addRollNo").value.trim();
+  const academicYear=document.getElementById("addAcademicYear").value;
 
-    let fees={};
-    monthsArr.forEach(m=>{
-        fees[m]={tution:0,library:0,computer:0,sports:0,other:0,status:"Unpaid",depositDate:"",mode:""};
-        if(editMode){
-            const fT=document.getElementById("feeT_"+m);
-            if(fT){
-                fees[m].tution=parseFloat(fT.value)||0;
-                fees[m].library=parseFloat(document.getElementById("feeL_"+m).value)||0;
-                fees[m].computer=parseFloat(document.getElementById("feeC_"+m).value)||0;
-                fees[m].sports=parseFloat(document.getElementById("feeS_"+m).value)||0;
-                fees[m].other=parseFloat(document.getElementById("feeO_"+m).value)||0;
-                fees[m].status=document.getElementById("feeSt_"+m).value;
-                fees[m].depositDate=document.getElementById("feeD_"+m).value;
-                fees[m].mode=document.getElementById("feeM_"+m).value;
-            }
+  let recordsAll=JSON.parse(localStorage.getItem("feeRecords")||"[]");
+
+  // Default empty fees
+  let fees={};
+  monthsArr.forEach(m=>{
+    fees[m]={tution:0,library:0,computer:0,sports:0,other:0,status:"Unpaid",depositDate:"",mode:""};
+  });
+
+  if(editMode){
+    // If editing, keep existing fees if editor not visible
+    const idx=recordsAll.findIndex(r=>r.receiptNo===receiptNo && r.academicYear===academicYear);
+    if(idx>=0){
+      // If fields exist in DOM (edit mode opened), pull values; else keep previous
+      const updatedFees=deepClone(recordsAll[idx].fees);
+      monthsArr.forEach(m=>{
+        const t=document.getElementById("feeT_"+m);
+        if(t){ // editor visible
+          updatedFees[m]={
+            tution:parseFloat(t.value)||0,
+            library:parseFloat(document.getElementById("feeL_"+m).value)||0,
+            computer:parseFloat(document.getElementById("feeC_"+m).value)||0,
+            sports:parseFloat(document.getElementById("feeS_"+m).value)||0,
+            other:parseFloat(document.getElementById("feeO_"+m).value)||0,
+            status:document.getElementById("feeSt_"+m).value,
+            depositDate:document.getElementById("feeD_"+m).value,
+            mode:document.getElementById("feeM_"+m).value
+          };
         }
-    });
+      });
+      recordsAll[idx]={receiptNo,fullName,parentName,mobileNo,className,rollNo,academicYear,fees:updatedFees};
+    }
+  }else{
+    // New student
+    recordsAll.push({receiptNo,fullName,parentName,mobileNo,className,rollNo,academicYear,fees});
+  }
 
-    let records=JSON.parse(localStorage.getItem("feeRecords")||"[]");
-    const studentData={receiptNo,fullName,parentName,mobileNo,className,rollNo,fees,academicYear};
-    if(editMode) {
-        const idx=records.findIndex(r=>r.receiptNo===currentReceiptNo && r.academicYear===academicYear);
-        records[idx]=studentData;
-    } else records.push(studentData);
-    localStorage.setItem("feeRecords",JSON.stringify(records));
-    document.getElementById("addModal").style.display="none";
-    loadRecords();
+  localStorage.setItem("feeRecords",JSON.stringify(recordsAll));
+  addModal.style.display="none";
+  loadRecords();
 };
 
-// Live Search
-const searchInput = document.getElementById("searchInput");
-searchInput.addEventListener("input", () => {
-    const query = searchInput.value.trim().toLowerCase();
-    const allRecords = JSON.parse(localStorage.getItem("feeRecords") || "[]")
-                        .filter(r => r.academicYear === yearSelect.value);
-    if (!query) { loadRecords(allRecords); return; }
-    const filtered = allRecords.filter(r => 
-        r.className.toLowerCase().includes(query) ||
-        r.rollNo.toLowerCase().includes(query) ||
-        (r.mobileNo && r.mobileNo.toLowerCase().includes(query))
-    );
-    loadRecords(filtered);
+// Search (live)
+document.getElementById("searchInput").addEventListener("input",()=>{
+  const val=document.getElementById("searchInput").value.toLowerCase();
+  const filtered = (JSON.parse(localStorage.getItem("feeRecords")||"[]")
+      .filter(r=>r.academicYear===yearSelect.value))
+      .filter(r=> (r.fullName||"").toLowerCase().includes(val)
+        || (r.className||"").toLowerCase().includes(val)
+        || (r.rollNo||"").toLowerCase().includes(val)
+        || (r.mobileNo||"").toLowerCase().includes(val)
+        || (r.receiptNo||"").toLowerCase().includes(val));
+  loadRecords(filtered);
 });
-document.getElementById("searchBtn").addEventListener("click", ()=>{ searchInput.dispatchEvent(new Event("input")); });
 
-// Export Excel
-document.getElementById("exportExcelBtn").onclick=()=>{
-    const allRecords=JSON.parse(localStorage.getItem("feeRecords")||"[]").filter(r=>r.academicYear===yearSelect.value);
-    let wb=XLSX.utils.book_new();
-    let data=[];
-    let header=["Receipt No","Name","Father/Mother","Class","Roll No","Mobile"];
-    monthsArr.forEach(m=>{ header.push(m+" Tuition",m+" Library",m+" Computer",m+" Sports",m+" Other"); });
-    header.push("Total");
-    data.push(header);
+// ===== Carry Forward (auto upgrade class, preserve receipt no.) =====
+document.getElementById("carryForwardBtn").onclick=()=>{
+  if(!confirm("Carry forward to next year?")) return;
 
-    let colTotals=Array(monthsArr.length*5+1).fill(0);
+  const currentYear = yearSelect.value;
+  const [y1,y2]=currentYear.split("-").map(n=>parseInt(n));
+  const nextYear = (y1+1)+"-"+(y2+1);
 
-    allRecords.forEach(r=>{
-        let row=[r.receiptNo,r.fullName,r.parentName,r.className,r.rollNo,r.mobileNo||'-'];
-        let total=0;
-        monthsArr.forEach((m,i)=>{
-            const f=r.fees[m];
-            row.push(f.tution,f.library,f.computer,f.sports,f.other);
-            colTotals[i*5+0]+=f.tution;
-            colTotals[i*5+1]+=f.library;
-            colTotals[i*5+2]+=f.computer;
-            colTotals[i*5+3]+=f.sports;
-            colTotals[i*5+4]+=f.other;
-            total+=f.tution+f.library+f.computer+f.sports+f.other;
-        });
-        row.push(total);
-        data.push(row);
+  const all=JSON.parse(localStorage.getItem("feeRecords")||"[]");
+  const currentYearRecords = all.filter(r=>r.academicYear===currentYear);
+
+  if(currentYearRecords.length===0){ alert("No records found for "+currentYear); return; }
+
+  // Avoid duplicate carry forward
+  const already = all.some(r=>r.academicYear===nextYear);
+  // (We still allow adding, but we won't duplicate students if already carried)
+
+  const toAdd=[];
+  currentYearRecords.forEach(r=>{
+    // Skip if this exact receipt is already present in next year (avoid duplicates)
+    if(all.some(x=>x.academicYear===nextYear && x.receiptNo===r.receiptNo)) return;
+
+    const newFees={};
+    monthsArr.forEach(m=>{ newFees[m]={tution:0,library:0,computer:0,sports:0,other:0,status:"Unpaid",depositDate:"",mode:""}; });
+
+    // auto upgrade class if numeric
+    const clsNum=parseInt(r.className);
+    const newClass = isNaN(clsNum) ? r.className : String(clsNum+1);
+
+    toAdd.push({
+      receiptNo: r.receiptNo, // keep same
+      fullName: r.fullName,
+      parentName: r.parentName,
+      mobileNo: r.mobileNo,
+      className: newClass,
+      rollNo: r.rollNo,
+      academicYear: nextYear,
+      fees: newFees
     });
+  });
 
-    // Column totals
-    let totalRow=["Totals","","","","",""];
-    colTotals.forEach(t=>totalRow.push(t));
-    totalRow.push(colTotals.reduce((a,b)=>a+b,0));
-    data.push(totalRow);
-
-    let ws=XLSX.utils.aoa_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb,ws,yearSelect.value);
-    XLSX.writeFile(wb,"VTC_Fee_"+yearSelect.value+".xlsx");
+  const updated = all.concat(toAdd);
+  localStorage.setItem("feeRecords",JSON.stringify(updated));
+  yearSelect.value=nextYear;
+  loadRecords();
+  alert("Carry Forward Completed to "+nextYear);
 };
 
-// Initial load
+// ===== Excel Export (Summary, Students, Fees with Mode & totals) =====
+document.getElementById("exportExcelBtn").onclick=()=>{
+  const ay = yearSelect.value;
+  const records = JSON.parse(localStorage.getItem("feeRecords")||"[]").filter(r=>r.academicYear===ay);
+
+  // --- Summary sheet ---
+  const totalStudents = records.length;
+  const totalCollected = records.reduce((acc,r)=>acc+monthsArr.reduce((s,m)=>s+monthlySum(r.fees[m]),0),0);
+  const summaryAoA = [
+    ["Academic Year", ay],
+    ["Total Students", totalStudents],
+    ["Total Fee Collected", totalCollected]
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoA);
+
+  // --- Students sheet ---
+  const studentsJSON = records.map(r=>({
+    ReceiptNo: r.receiptNo,
+    Name: r.fullName,
+    FatherMother: r.parentName,
+    Class: r.className,
+    RollNo: r.rollNo,
+    Mobile: r.mobileNo,
+    AcademicYear: r.academicYear
+  }));
+  const wsStudents = XLSX.utils.json_to_sheet(studentsJSON);
+
+  // --- Fees sheet (row per student, monthwise total + Status + Mode + DepositDate + RowSum) ---
+  // Build header
+  const feesHeader = [
+    "ReceiptNo","Name","Class","RollNo"
+  ];
+  monthsArr.forEach(m=>{
+    feesHeader.push(`${m} Total`, `${m} Status`, `${m} Mode`, `${m} Date`);
+  });
+  feesHeader.push("Row Sum");
+
+  const feesAoA = [feesHeader];
+
+  records.forEach(r=>{
+    const row=[r.receiptNo, r.fullName, r.className, r.rollNo];
+    let rowSum=0;
+    monthsArr.forEach(m=>{
+      const f=r.fees[m]||{};
+      const mt = monthlySum(f);
+      rowSum += mt;
+      row.push(mt, f.status||"Unpaid", f.mode||"", f.depositDate||"");
+    });
+    row.push(rowSum);
+    feesAoA.push(row);
+  });
+
+  // Column sums (for each month total column)
+  const totalsRow = new Array(feesHeader.length).fill("");
+  totalsRow[0]="COLUMN SUMS";
+  // indices: after 4 base cols, every 4 cols per month -> totals at 4 + (i*4)
+  monthsArr.forEach((m,i)=>{
+    const totalColIndex = 4 + (i*4); // position of `${m} Total`
+    let colSum=0;
+    for(let r=1; r<feesAoA.length; r++){ // skip header
+      colSum += Number(feesAoA[r][totalColIndex]||0);
+    }
+    totalsRow[totalColIndex]=colSum;
+  });
+  // Grand sum for "Row Sum" column
+  const rowSumIndex = feesHeader.length-1;
+  let grand=0;
+  for(let r=1;r<feesAoA.length;r++){ grand += Number(feesAoA[r][rowSumIndex]||0); }
+  totalsRow[rowSumIndex]=grand;
+
+  feesAoA.push(totalsRow);
+
+  const wsFees = XLSX.utils.aoa_to_sheet(feesAoA);
+
+  // --- Build workbook with year-named sheets ---
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsSummary, `${ay} - Summary`);
+  XLSX.utils.book_append_sheet(wb, wsStudents, `${ay} - Students`);
+  XLSX.utils.book_append_sheet(wb, wsFees, `${ay} - Fees`);
+  XLSX.writeFile(wb, `VTC_FeeRecords_${ay}.xlsx`);
+};
+
+// Initial Load
 loadRecords();
 </script>
+
 </body>
 </html>
